@@ -68,7 +68,6 @@ static struct option longopts[] = {
 	{ "exclude", no_argument,       NULL, 'x' },
 	{ "shsh",    no_argument,       NULL, 't' },
 	{ "keep-pers", no_argument,     NULL, 'k' },
-	{ "pwn",     no_argument,       NULL, 'p' },
 	{ "no-action", no_argument,     NULL, 'n' },
 	{ "cache-path", required_argument, NULL, 'C' },
 	{ NULL, 0, NULL, 0 }
@@ -94,7 +93,6 @@ void usage(int argc, char* argv[]) {
 	printf("  -x, --exclude\t\texclude nor/baseband upgrade\n");
 	printf("  -t, --shsh\t\tfetch TSS record and save to .shsh file, then exit\n");
 	printf("  -k, --keep-pers\twrite personalized components to files for debugging\n");
-	printf("  -p, --pwn\t\tput device in pwned DFU mode and exit (limera1n devices only)\n");
 	printf("  -n, --no-action\tDo not perform any restore action. If combined with -l option\n");
 	printf("                 \tthe on demand ipsw download is performed before exiting.\n");
 	printf("  -C, --cache-path DIR\tUse specified directory for caching extracted\n");
@@ -295,26 +293,6 @@ int idevicerestore_start(struct idevicerestore_client_t* client)
 	if ((client->flags & FLAG_PWN) && (client->mode->index != MODE_DFU)) {
 		error("ERROR: you need to put your device into DFU mode to pwn it.\n");
 		return -1;
-	}
-
-	if (client->flags & FLAG_PWN) {
-		recovery_client_free(client);
-
-		info("connecting to DFU\n");
-		if (dfu_client_new(client) < 0) {
-			return -1;
-		}
-		info("exploiting with limera1n...\n");
-		// TODO: check for non-limera1n device and fail
-		if (limera1n_exploit(client->device, &client->dfu->client) != 0) {
-			error("ERROR: limera1n exploit failed\n");
-			dfu_client_free(client);
-			return -1;
-		}
-		dfu_client_free(client);
-		info("Device should be in pwned DFU state now.\n");
-
-		return 0;
 	}
 
 	if (client->flags & FLAG_LATEST) {
@@ -778,19 +756,8 @@ int idevicerestore_start(struct idevicerestore_client_t* client)
 					unlink(filesystem);
 				return -1;
 			}
-			info("exploiting with limera1n\n");
-			// TODO: check for non-limera1n device and fail
-			if (limera1n_exploit(client->device, &client->dfu->client) != 0) {
-				error("ERROR: limera1n exploit failed\n");
-				dfu_client_free(client);
-				if (delete_fs && filesystem)
-					unlink(filesystem);
-				return -1;
-			}
-			dfu_client_free(client);
-			info("exploited\n");
 		}
-		if (dfu_enter_recovery(client, build_identity) < 0) {
+		if (enter_recovery(client, build_identity) < 0) {
 			error("ERROR: Unable to place device into recovery mode from %s mode\n", client->mode->string);
 			plist_free(buildmanifest);
 			if (client->tss)
@@ -824,7 +791,7 @@ int idevicerestore_start(struct idevicerestore_client_t* client)
 	
 		/* this must be long enough to allow the device to run the iBEC */
 		/* FIXME: Probably better to detect if the device is back then */
-		sleep(7);
+		sleep(20);
 	}
 	idevicerestore_progress(client, RESTORE_STEP_PREPARE, 0.5);
 
